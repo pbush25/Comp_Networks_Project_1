@@ -11,7 +11,7 @@ class UDPClient {
         BufferedReader inFromUser = new BufferedReader(new InputStreamReader(System.in));
 
         DatagramSocket clientSocket = new DatagramSocket();
-        InetAddress IPAddress = InetAddress.getByName("hostname");
+        InetAddress IPAddress = InetAddress.getByName("google.com");
 
         byte[] sendData = new byte[1024];
         byte[] recieveData = new byte[1024];
