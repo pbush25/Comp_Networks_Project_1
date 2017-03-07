@@ -1,37 +1,73 @@
 /**
  * Created by King on 3/2/2017.
  */
+import javax.xml.crypto.Data;
 import java.io.*;
 import java.net.*;
 
+import static java.lang.System.exit;
 
 
 class UDPClient {
+    public static DatagramSocket clientSocket;
+
+
     public static void main(String args[]) throws Exception {
-        BufferedReader inFromUser = new BufferedReader(new InputStreamReader(System.in));
 
-        DatagramSocket clientSocket = new DatagramSocket();
-        InetAddress IPAddress = InetAddress.getByName("google.com");
+        clientSocket = new DatagramSocket();
+        UDPClientHelper client = new UDPClientHelper("127.0.0.1");
 
-        byte[] sendData = new byte[1024];
-        byte[] recieveData = new byte[1024];
+        BufferedReader inputBuffer = new BufferedReader(new InputStreamReader(System.in));
+        try {
+            String httpRequest = inputBuffer.readLine();
+            client.sendHTTPRequest(httpRequest);
+            client.receivePacket();
+        } catch (IOException e) {
+            System.out.println("Client error " + e.getLocalizedMessage());
+            throw e;
+        }
 
-        String sentence = inFromUser.readLine();
-        sendData = sentence.getBytes();
+    }
+}
 
-        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, 10040);
+class UDPClientHelper {
+    private byte[] sendData = new byte[1024];
+    private byte[] receiveData = new byte[1024];
+    private InetAddress ipAddress;
 
-        //Send datagram to server
-        clientSocket.send(sendPacket);
+    public UDPClientHelper(String ipAddressAssigned) throws UnknownHostException {
+        try {
+            ipAddress = InetAddress.getByName(ipAddressAssigned);
+        } catch (UnknownHostException e) {
+            System.out.println("Unable to resolve host " + e.getLocalizedMessage());
+            throw e;
+        }
+    }
 
-        DatagramPacket receivePacket = new DatagramPacket(recieveData, recieveData.length);
+    public void sendHTTPRequest(String request) throws IOException {
+        sendData = request.getBytes();
 
-        //Read datagram from server
-        clientSocket.receive(receivePacket);
+        // Create the datagram packet
+        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ipAddress, 10040);
+        try {
+            UDPClient.clientSocket.send(sendPacket);
+        } catch (IOException e) {
+            System.out.println("Error sending packet... " + e.getLocalizedMessage());
+            throw e;
+        }
+    }
 
-        String modifiedSentence = new String(receivePacket.getData());
+    public void receivePacket() throws IOException {
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+        try {
+            UDPClient.clientSocket.receive(receivePacket);
+        } catch (IOException e) {
+            System.out.println("Error receiving packet... " + e.getLocalizedMessage());
+            throw e;
+        }
 
-        System.out.println("FROM SERVER:" + modifiedSentence);
-        clientSocket.close();
+        String response = new String(receivePacket.getData());
+        System.out.println("Received message from server... " + response);
+        UDPClient.clientSocket.close();
     }
 }
