@@ -135,6 +135,7 @@ class UDPServerHelper {
 
             packet = packetInfo.getBytes();
             System.out.println("Sending packet with data " + new String(packet));
+            sendData = new byte[UDPServer.PACKET_LENGTH];
             sendData = packet;
 
             // send the packet
@@ -149,12 +150,11 @@ class UDPServerHelper {
 
     private void readFile(String fileName) {
         try {
-            URL path = UDPServer.class.getResource(fileName);
-            if (path == null) {
-                // Path doesn't exist for file, abort
+            File file = new File("./" + fileName);
+            if (!file.isFile()) {
                 return;
             }
-            File file = new File(path.toURI());
+
             fileData = Files.readAllBytes(file.toPath());
             System.out.println("Found and read data from file. Processing file...");
             // have to add 1 byte with null to indicate termination
@@ -166,7 +166,7 @@ class UDPServerHelper {
             // set the last byte to null && assign back to buffer
             tempFileData[tempFileData.length - 1] = 0;
             fileData = tempFileData;
-        } catch (IOException | URISyntaxException e) {
+        } catch (IOException e) {
             System.out.println("Couldn't read requested file " + e.getMessage());
         }
     }
