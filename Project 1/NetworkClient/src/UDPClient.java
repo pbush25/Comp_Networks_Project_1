@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Random;
 
 import static java.lang.System.exit;
 
@@ -15,7 +16,7 @@ import static java.lang.System.exit;
 class UDPClient {
     static final int PACKET_LENGTH = 128;
     static DatagramSocket clientSocket;
-    static int damagedPacketProbability;
+    static double damagedPacketProbability;
     static String fileName;
     static UDPClientHelper client;
 
@@ -30,10 +31,10 @@ class UDPClient {
         if (args.length > 0) {
             // set the probability
             try {
-                damagedPacketProbability = Integer.parseInt(args[0]);
+                damagedPacketProbability = Double.parseDouble(args[0]);
             } catch (NumberFormatException e) {
-                System.out.println("Error! Damaged packet probability must be an int!");
-                System.out.println("Usage: java UDPClient <int>");
+                System.out.println("Error! Damaged packet probability must be an double!");
+                System.out.println("Usage: java UDPClient <double>");
                 exit(0);
             }
         }
@@ -190,17 +191,18 @@ class UDPClientHelper {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
+            packet = gremlin(packet, header.length());
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
+            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
-                System.out.println("Checksum error exists!");
-                continue;
+                System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber + "\n");
             }
             fileInfo += packetString;
             System.out.println("Received data in packet \n" + new String(packet));
             packet = null;
         } catch (IOException | ArrayIndexOutOfBoundsException e) {
-            System.out.println("Unable to load file from response " + e.getLocalizedMessage());
+            System.out.println("Unable to load file from response " + e.getStackTrace());
             return;
         }
     }
@@ -320,17 +322,34 @@ class UDPClientHelper {
      * @param packet the packet to check
      * @return the changed (or not) packet
      */
-    private byte[] gremlin(byte[] packet) {
+    private byte[] gremlin(byte[] packet, int headerLength) {
         // First, decide whether to damage packet or not
+        Random generator = new Random();
+        double randomNumber = generator.nextDouble();
 
-//        if (/** we shouldn't change it */) {
-//            return packet;
-//        }
+        if (randomNumber > UDPClient.damagedPacketProbability) {
+            return packet;
+        }
+
+        double randomProb = generator.nextDouble();
 
         // We decided to damage it
         // Let's determine how much to damage
-        switch (UDPClient.damagedPacketProbability) {
-
+        if (randomProb > 0.0 && randomProb <= 0.2) {
+            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            int randomIdx3 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            packet[randomIdx1] = 0;
+            packet[randomIdx2] = 0;
+            packet[randomIdx3] = 0;
+        } else if (randomProb > 0.2 && randomProb <= 0.5) {
+            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            packet[randomIdx1] = 0;
+            packet[randomIdx2] = 0;
+        } else {
+            int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+            packet[randomIdx] = 0;
         }
 
         return packet;
