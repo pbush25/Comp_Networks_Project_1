@@ -191,12 +191,12 @@ class UDPClientHelper {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
+            int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
+            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
             packet = gremlin(packet, header.length());
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
-            int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
-                System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber + "\n");
+                System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
             }
             fileInfo += packetString;
             System.out.println("Received data in packet \n" + new String(packet));
@@ -310,7 +310,7 @@ class UDPClientHelper {
             checksum += b.intValue();
         }
 
-        System.out.println("Checksum comparison finished. Expected: " + expectedChecksum + " actual: " + checksum);
+        System.out.println("\nChecksum comparison finished. Expected: " + expectedChecksum + " actual: " + checksum);
 
         return checksum == expectedChecksum;
     }
