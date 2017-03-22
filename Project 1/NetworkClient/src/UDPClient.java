@@ -19,6 +19,8 @@ class UDPClient {
     static double damagedPacketProbability;
     static String fileName;
     static UDPClientHelper client;
+    static String inetAddress;
+    static BufferedReader inputBuffer;
 
     /**
      * Main UDPClient method
@@ -39,6 +41,10 @@ class UDPClient {
             }
         }
 
+        inputBuffer = new BufferedReader(new InputStreamReader(System.in));
+        System.out.print("Please enter the server inet address: ");
+        inetAddress = inputBuffer.readLine();
+
         // begin client runloop
         kickoffRunloop();
     }
@@ -49,10 +55,10 @@ class UDPClient {
     private static void kickoffRunloop() {
         // always be prepared to accept a HTTP request input
         while (true) {
-            BufferedReader inputBuffer = new BufferedReader(new InputStreamReader(System.in));
+            inputBuffer = new BufferedReader(new InputStreamReader(System.in));
             try {
                 clientSocket = new DatagramSocket();
-                client = new UDPClientHelper("127.0.0.1");
+                client = new UDPClientHelper(inetAddress);
                 System.out.print("Enter HTTP Request: ");
                 String httpRequest = inputBuffer.readLine();
                 String[] requestComponents = (httpRequest.trim().split("\\s+"));
@@ -170,7 +176,7 @@ class UDPClientHelper {
                 }
             }
 
-            System.out.println("Received HTTP response \n" + new String(receiveData));
+            System.out.println("Received HTTP response \n" + new String(trim(receiveData)));
         } catch (SocketTimeoutException to) {
             System.out.println("Timed out waiting for server... ");
             throw to;
