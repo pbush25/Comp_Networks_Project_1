@@ -43,7 +43,7 @@ class UDPClient {
 
         inputBuffer = new BufferedReader(new InputStreamReader(System.in));
         System.out.print("Please enter the server inet address: ");
-        inetAddress = inputBuffer.readLine();
+        inetAddress = inputBuffer.readLine().trim();
 
         // begin client runloop
         kickoffRunloop();
