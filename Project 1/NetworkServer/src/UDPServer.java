@@ -13,7 +13,7 @@ import java.util.Arrays;
  */
 class UDPServer {
     static DatagramSocket serverSocket;
-    static final int PACKET_LENGTH = 128;
+    static final int PACKET_LENGTH = 512;
     static final int HEADER_LENGTH = 40;
 
     /**

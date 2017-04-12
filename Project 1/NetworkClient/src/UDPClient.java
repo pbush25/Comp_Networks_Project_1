@@ -14,7 +14,7 @@ import static java.lang.System.exit;
  * Main UDPClient
  */
 class UDPClient {
-    static final int PACKET_LENGTH = 128;
+    static final int PACKET_LENGTH = 512;
     static DatagramSocket clientSocket;
     static double damagedPacketProbability;
     static String fileName;
