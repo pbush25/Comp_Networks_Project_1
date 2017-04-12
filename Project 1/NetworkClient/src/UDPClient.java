@@ -17,6 +17,9 @@ class UDPClient {
     static final int PACKET_LENGTH = 512;
     static DatagramSocket clientSocket;
     static double damagedPacketProbability;
+    static double lostPacketProbability;
+    static double delayedPacketProbability;
+    static double delayedPacketTime;
     static String fileName;
     static UDPClientHelper client;
     static String inetAddress;
@@ -41,12 +44,40 @@ class UDPClient {
             }
         }
 
-        inputBuffer = new BufferedReader(new InputStreamReader(System.in));
-        System.out.print("Please enter the server inet address: ");
-        inetAddress = inputBuffer.readLine().trim();
+        //Set Client variables
+        getUserInput();
 
         // begin client runloop
         kickoffRunloop();
+    }
+
+    /**
+     * Allows the user to set the probability of packet corruption, loss, and delay. Also sets the delay time in milliseconds
+     * and the server inet address.
+     */
+    private static void getUserInput() {
+       try {
+           inputBuffer = new BufferedReader(new InputStreamReader(System.in));
+
+           System.out.print("Enter the probability that a packet is damaged (0.2 = 20%): ");
+           damagedPacketProbability = Double.parseDouble(inputBuffer.readLine().trim());
+
+           System.out.print("Enter the probability that a packet is lost: ");
+           lostPacketProbability = Double.parseDouble(inputBuffer.readLine().trim());
+
+           System.out.print("Enter the probability that a packet is delayed: ");
+           delayedPacketProbability = Double.parseDouble(inputBuffer.readLine().trim());
+
+           System.out.print("Enter the delay time for packets (in milliseconds): ");
+           delayedPacketTime = Double.parseDouble(inputBuffer.readLine().trim());
+
+           System.out.print("Enter the server inet address: ");
+           inetAddress = inputBuffer.readLine().trim();
+
+       }
+       catch (java.io.IOException e) {
+           System.out.println("Error reading in Gremlin variables. Error Message: " + e.getLocalizedMessage());
+       }
     }
 
     /**
@@ -96,9 +127,11 @@ class UDPClientHelper {
     private byte[] sendData;
     private byte[] receiveData = new byte[UDPClient.PACKET_LENGTH];
     private InetAddress ipAddress;
+    private int incomingPort;
     private byte[] file;
     private int fileSize;
     private String fileInfo = "";
+    private int expectedSequenceNumber = 0;
 
     /**
      * Create a new UDPClientHelper class
@@ -199,18 +232,141 @@ class UDPClientHelper {
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
-            packet = gremlin(packet, header.length());
-            String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
-                System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
+
+            PacketCondition condition = gremlin(packet, header.length());
+
+            if (condition == PacketCondition.LOST) {
+                //Act like we never received a packet.
+                continue;
             }
-            fileInfo += packetString;
-            System.out.println("Received data in packet \n" + new String(packet));
-            packet = null;
+            if (condition == PacketCondition.DAMAGED) {
+                //Send NACK
+
+                sendNACK();
+            }
+            if (condition == PacketCondition.DELAYED) {
+                //Async Delay
+            }
+            if (sequenceNumber != expectedSequenceNumber) {
+                //Send ACK with expected sequence number
+            }
+            else {
+                expectedSequenceNumber++;
+                sendACK();
+                String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
+                if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
+                    System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
+                }
+                fileInfo += packetString;
+                System.out.println("Received data in packet \n" + new String(packet));
+                packet = null;
+            }
+
+
+
+
         } catch (IOException | ArrayIndexOutOfBoundsException e) {
             System.out.println("Unable to load file from response " + e.getStackTrace());
             return;
         }
+    }
+
+    private void sendACK() {
+        // Create the packet header
+        byte[] packet;
+        String packetHeader;
+        String packetInfo;
+
+        //Super simple message, might need to add more
+        String ack = "ACK";
+
+        // compute the checksum and create packet header
+        int checksum = computeChecksum(ack.getBytes());
+
+        packetHeader = createDataPacketHeader(expectedSequenceNumber, checksum);
+
+        packetInfo = packetHeader + ack;
+
+        // covert the packet info to the packet
+        packet = packetInfo.getBytes();
+
+        System.out.println("Sending packet with data \n" + new String(packet));
+        sendData = new byte[UDPClient.PACKET_LENGTH];
+        sendData = packet;
+
+        // send the packet
+        try {
+            sendPacket(incomingPort, ipAddress);
+        } catch (IOException e) {
+            System.out.println("Unable to process response " + e.getLocalizedMessage());
+        }
+    }
+
+    private void sendNACK() {
+        // Create the packet header
+        byte[] packet;
+        String packetHeader;
+        String packetInfo;
+
+        //Super simple message, might need to add more
+        String nack = "NACK";
+
+        // compute the checksum and create packet header
+        int checksum = computeChecksum(nack.getBytes());
+
+        packetHeader = createDataPacketHeader(sequenceNumber, checksum);
+
+        packetInfo = packetHeader + nack;
+
+        // covert the packet info to the packet
+        packet = packetInfo.getBytes();
+
+        System.out.println("Sending packet with data \n" + new String(packet));
+        sendData = new byte[UDPClient.PACKET_LENGTH];
+        sendData = packet;
+
+        // send the packet
+        try {
+            sendPacket(incomingPort, ipAddress);
+            sequenceNumber++;
+        } catch (IOException e) {
+            System.out.println("Unable to process response " + e.getLocalizedMessage());
+        }
+    }
+
+
+    /**
+     * Create the header for a data packet
+     * @param sequenceNumber the sequence number of the packet > 0
+     * @param checksum the checksum of the data > 0
+     * @return a proper header for the packet w/ info
+     */
+    private String createDataPacketHeader(int sequenceNumber, int checksum) {
+        String packetHeader;
+        packetHeader = ("Sequence #" + sequenceNumber + "\r\n");
+        packetHeader += ("Checksum #" + checksum + "\r\n");
+        packetHeader += "&\r\n";
+
+        return packetHeader;
+    }
+
+    /**
+     * Computes the checksum of the packet for error detection
+     * @param packet the packet for which to calculate the checksum
+     * @return the calculated checksum value
+     */
+    private int computeChecksum(byte[] packet) {
+        int checksum = 0;
+        for (Byte b: packet) {
+            checksum += b.intValue();
+        }
+        return checksum;
+    }
+
+
+    //This would handle the conditionals inside LoadFileFromResponse
+    private void handlePacketCondition() {
+
     }
 
     /**
@@ -284,6 +440,7 @@ class UDPClientHelper {
         while (true) {
             try {
                 UDPClient.clientSocket.receive(receivePacket);
+                incomingPort = receivePacket.getPort();
             } catch (SocketTimeoutException to) {
                 System.out.println("Error receiving packet... " + to.getLocalizedMessage());
                 throw to;
@@ -300,6 +457,22 @@ class UDPClientHelper {
                 receivedNullPacket();
                 return;
             }
+        }
+    }
+    /**
+     * Sends a UDP packet out over the datagram
+     * Information should be in sendData
+     * @param port int the outgoing port
+     * @param ipAddress InetAddress the IP address to send to
+     * @throws IOException
+     */
+    private void sendPacket(int port, InetAddress ipAddress) throws IOException {
+        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ipAddress, port);
+        try {
+            UDPClient.clientSocket.send(sendPacket);
+        } catch (IOException e) {
+            System.out.println("Unable to send packet... " + e.getLocalizedMessage());
+            throw e;
         }
     }
 
@@ -328,37 +501,46 @@ class UDPClientHelper {
      * @param packet the packet to check
      * @return the changed (or not) packet
      */
-    private byte[] gremlin(byte[] packet, int headerLength) {
+    private PacketCondition gremlin(byte[] packet, int headerLength) {
         // First, decide whether to damage packet or not
         Random generator = new Random();
         double randomNumber = generator.nextDouble();
 
-        if (randomNumber > UDPClient.damagedPacketProbability) {
-            return packet;
+        if (randomNumber <= UDPClient.lostPacketProbability) {
+            return PacketCondition.LOST;
         }
 
-        double randomProb = generator.nextDouble();
-
-        // We decided to damage it
-        // Let's determine how much to damage
-        if (randomProb > 0.0 && randomProb <= 0.2) {
-            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            int randomIdx3 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            packet[randomIdx1] = 0;
-            packet[randomIdx2] = 0;
-            packet[randomIdx3] = 0;
-        } else if (randomProb > 0.2 && randomProb <= 0.5) {
-            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            packet[randomIdx1] = 0;
-            packet[randomIdx2] = 0;
-        } else {
-            int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-            packet[randomIdx] = 0;
+        if (randomNumber <= UDPClient.damagedPacketProbability) {
+            return PacketCondition.DAMAGED;
         }
 
-        return packet;
+        if (randomNumber <= UDPClient.delayedPacketProbability) {
+            return PacketCondition.DELAYED;
+        }
+
+        return PacketCondition.OKAY;
+//
+//        double randomProb = generator.nextDouble();
+//
+//        // We decided to damage it
+//        // Let's determine how much to damage
+//        if (randomProb > 0.0 && randomProb <= 0.2) {
+//            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            int randomIdx3 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            packet[randomIdx1] = 0;
+//            packet[randomIdx2] = 0;
+//            packet[randomIdx3] = 0;
+//        } else if (randomProb > 0.2 && randomProb <= 0.5) {
+//            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            packet[randomIdx1] = 0;
+//            packet[randomIdx2] = 0;
+//        } else {
+//            int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+//            packet[randomIdx] = 0;
+//        }
+
     }
 
     /**
@@ -374,6 +556,10 @@ class UDPClientHelper {
         }
 
         return Arrays.copyOf(bytes, i + 1);
+    }
+
+    private enum PacketCondition {
+        DAMAGED, LOST, DELAYED, OKAY
     }
 
     private enum ResponseCodes {

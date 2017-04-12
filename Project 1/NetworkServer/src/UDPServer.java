@@ -15,6 +15,10 @@ class UDPServer {
     static DatagramSocket serverSocket;
     static final int PACKET_LENGTH = 512;
     static final int HEADER_LENGTH = 40;
+    static final int WINDOW_SIZE = 32;
+
+
+    static final int SEQUENCE_SPACE = 65; //Mod 64 means we need 65 sequence numbers including 0
 
     /**
      * Main runloop for server; always running
@@ -23,7 +27,7 @@ class UDPServer {
      */
     public static void main(String args[]) throws Exception {
         try {
-            serverSocket = new DatagramSocket(10040);
+            serverSocket = new DatagramSocket(10050);
         } catch (SocketException e) {
             System.out.println("Unable to open socket... " + e.getLocalizedMessage());
             throw e;
@@ -45,6 +49,13 @@ class UDPServerHelper {
 
     private int incomingPort;
     private InetAddress incomingAddress;
+
+    private int windowMin = 0;
+    private int windowMax = 31;
+    private int currentSequenceNum = 0;
+    private int fileByteCounter = 0;
+    private int windowFileByteCounter = 0;
+    private int sequenceNumber = 0;
 
     /**
      * Kicks off request receipt loop...will always be listening
@@ -176,47 +187,108 @@ class UDPServerHelper {
      */
     private void processAndSendData() {
         // break the file up into packets and send them
-        int fileByteCounter = 0;
-        int sequenceNumber = 0;
-        byte[] packet;
+        while(fileByteCounter < fileData.length) {
+            windowFileByteCounter = fileByteCounter;
+            while (sequenceNumber <= windowMax) {
+                processAndSendPacket();
+            }
+            waitForResponse();
+        }
+    }
 
+    private void waitForResponse() {
+        try {
+            receivePacket();
+            byte[] packet = trim(receiveData); // remove null bytes
+            String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
+            int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
+            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
+            String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
+            if (packetString == "ACK") {
+               windowMin++;
+               windowMax++;
+
+            }
+            else if (packetString == "NACK") {
+                sequenceNumber = "" + windowMin;
+                fileByteCounter = windowFileByteCounter;
+            }
+        }
+        catch (SocketTimeoutException to) {
+
+        }
+        catch (IOException e) {
+
+        }
+    }
+
+    /**
+     * Asks the client to receive a new packet from the socket
+     *
+     * @throws IOException E if unable to receive packet
+     */
+    private void receivePacket() throws IOException {
+        receiveData = new byte[UDPServer.PACKET_LENGTH]; // empty data buffer
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+
+        while (true) {
+            try {
+                UDPServer.serverSocket.receive(receivePacket);
+            } catch (SocketTimeoutException to) {
+                System.out.println("Error receiving packet... " + to.getLocalizedMessage());
+                throw to;
+            } catch (IOException e) {
+                System.out.println("Error receiving packet... " + e.getLocalizedMessage());
+                throw e;
+            }
+
+            if (receiveData[0] != 0) {
+                return;
+            } else if (receiveData[receiveData.length - 1] != 0) {
+                return;
+            } else {
+                //receivedNullPacket();
+                return;
+            }
+        }
+    }
+
+    private void processAndSendPacket() {
         // Create the packet header
+        byte[] packet;
         String packetHeader;
         String packetInfo;
 
-        while(fileByteCounter < fileData.length) {
-            byte[] tempFileBytes;
-            int packetSize = fileData.length - fileByteCounter;
-            int dataLength = UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH;
+        byte[] tempFileBytes;
+        int packetSize = fileData.length - fileByteCounter;
+        int dataLength = UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH;
 
-            // get the rest of the file data for the packet
-            if (packetSize > dataLength) {
-                tempFileBytes = Arrays.copyOfRange(fileData, fileByteCounter, fileByteCounter += dataLength);
-            } else {
-                tempFileBytes = Arrays.copyOfRange(fileData, fileByteCounter, fileByteCounter += packetSize);
-            }
+        // get the rest of the file data for the packet
+        if (packetSize > dataLength) {
+            tempFileBytes = Arrays.copyOfRange(fileData, fileByteCounter, fileByteCounter += dataLength);
+        } else {
+            tempFileBytes = Arrays.copyOfRange(fileData, fileByteCounter, fileByteCounter += packetSize);
+        }
 
-            // compute the checksum and create packet header
-            int checksum = computeChecksum(tempFileBytes);
-            packetHeader = createDataPacketHeader(sequenceNumber, checksum);
+        // compute the checksum and create packet header
+        int checksum = computeChecksum(tempFileBytes);
+        packetHeader = createDataPacketHeader(sequenceNumber, checksum);
 
-            packetInfo = packetHeader + new String(tempFileBytes);
+        packetInfo = packetHeader + new String(tempFileBytes);
 
-            // covert the packet info to the packet
-            packet = packetInfo.getBytes();
+        // covert the packet info to the packet
+        packet = packetInfo.getBytes();
 
-            System.out.println("Sending packet with data \n" + new String(packet));
-            sendData = new byte[UDPServer.PACKET_LENGTH];
-            sendData = packet;
+        System.out.println("Sending packet with data \n" + new String(packet));
+        sendData = new byte[UDPServer.PACKET_LENGTH];
+        sendData = packet;
 
-            // send the packet
-            try {
-                sendPacket(incomingPort, incomingAddress);
-                sequenceNumber++;
-            } catch (IOException e) {
-                System.out.println("Unable to process response " + e.getLocalizedMessage());
-                return;
-            }
+        // send the packet
+        try {
+            sendPacket(incomingPort, incomingAddress);
+            sequenceNumber++;
+        } catch (IOException e) {
+            System.out.println("Unable to process response " + e.getLocalizedMessage());
         }
     }
 
@@ -268,6 +340,21 @@ class UDPServerHelper {
             checksum += b.intValue();
         }
         return checksum;
+    }
+
+    /**
+     * Trim a byte array of any null values
+     *
+     * @param bytes byte[] the byte array to trim
+     * @return byte[] the trimmed array
+     */
+    private byte[] trim(byte[] bytes) {
+        int i = bytes.length - 1;
+        while (i >= 0 && bytes[i] == 0) {
+            --i;
+        }
+
+        return Arrays.copyOf(bytes, i + 1);
     }
 
     /**
