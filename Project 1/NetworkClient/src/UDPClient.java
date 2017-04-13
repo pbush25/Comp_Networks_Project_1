@@ -225,14 +225,15 @@ class UDPClientHelper {
      * After receiving the response, load the file requested
      */
     private void loadFileFromResponse() {
-        // get the file packets wile the size of the data is less than the file size
+        // get the file packets while the size of the data is less than the file size
         while (fileInfo.length() < fileSize) try {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
-            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
+            String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
+            //Yeah this was a bad idea, Should probably revert gremlin back to returning a packet.
             PacketCondition condition = gremlin(packet, header.length());
 
             if (condition == PacketCondition.LOST) {
@@ -247,8 +248,10 @@ class UDPClientHelper {
             if (condition == PacketCondition.DELAYED) {
                 //Async Delay
             }
-            if (sequenceNumber != expectedSequenceNumber) {
-                //Send ACK with expected sequence number
+            if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+                //Send ACK with expected sequence number and print error message
+                System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
+                sendACK();
             }
             else {
                 expectedSequenceNumber++;
@@ -290,7 +293,7 @@ class UDPClientHelper {
         // covert the packet info to the packet
         packet = packetInfo.getBytes();
 
-        System.out.println("Sending packet with data \n" + new String(packet));
+        System.out.println("Sending ACK with sequence number: " + expectedSequenceNumber);
         sendData = new byte[UDPClient.PACKET_LENGTH];
         sendData = packet;
 
@@ -314,7 +317,7 @@ class UDPClientHelper {
         // compute the checksum and create packet header
         int checksum = computeChecksum(nack.getBytes());
 
-        packetHeader = createDataPacketHeader(sequenceNumber, checksum);
+        packetHeader = createDataPacketHeader(expectedSequenceNumber, checksum);
 
         packetInfo = packetHeader + nack;
 
@@ -328,7 +331,7 @@ class UDPClientHelper {
         // send the packet
         try {
             sendPacket(incomingPort, ipAddress);
-            sequenceNumber++;
+//            sequenceNumber++;
         } catch (IOException e) {
             System.out.println("Unable to process response " + e.getLocalizedMessage());
         }

@@ -27,7 +27,7 @@ class UDPServer {
      */
     public static void main(String args[]) throws Exception {
         try {
-            serverSocket = new DatagramSocket(10050);
+            serverSocket = new DatagramSocket(10040);
         } catch (SocketException e) {
             System.out.println("Unable to open socket... " + e.getLocalizedMessage());
             throw e;
@@ -188,7 +188,6 @@ class UDPServerHelper {
     private void processAndSendData() {
         // break the file up into packets and send them
         while(fileByteCounter < fileData.length) {
-            windowFileByteCounter = fileByteCounter;
             while (sequenceNumber <= windowMax) {
                 processAndSendPacket();
             }
@@ -202,22 +201,25 @@ class UDPServerHelper {
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
-            String sequenceNumber = header.substring(header.indexOf('#') + 1, '\r');
+            int ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, '\r'));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (packetString == "ACK") {
+            if (packetString == "ACK") {  //no need to check sequence number since the receiver will only send an ACK if it receives an in-order packet.
                windowMin++;
                windowMax++;
+               windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
 
             }
             else if (packetString == "NACK") {
-                sequenceNumber = "" + windowMin;
+                sequenceNumber = windowMin;
                 fileByteCounter = windowFileByteCounter;
             }
         }
         catch (SocketTimeoutException to) {
+            System.out.println("Socket Timeout Exception: " + to.getLocalizedMessage());
 
         }
         catch (IOException e) {
+            System.out.println("Error receiving packet... " + e.getLocalizedMessage());
 
         }
     }
