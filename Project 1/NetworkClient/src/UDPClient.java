@@ -2,6 +2,8 @@
  * Created by King on 3/2/2017.
  */
 
+import com.sun.xml.internal.bind.v2.runtime.reflect.Lister;
+
 import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
@@ -132,6 +134,7 @@ class UDPClientHelper {
     private int fileSize;
     private String fileInfo = "";
     private int expectedSequenceNumber = 0;
+    private PacketCondition currentPacketCondition;
 
     /**
      * Create a new UDPClientHelper class
@@ -234,18 +237,18 @@ class UDPClientHelper {
             String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
             //Yeah this was a bad idea, Should probably revert gremlin back to returning a packet.
-            PacketCondition condition = gremlin(packet, header.length());
+            packet = gremlin(packet, header.length());
 
-            if (condition == PacketCondition.LOST) {
+            if (currentPacketCondition == PacketCondition.LOST) {
                 //Act like we never received a packet.
                 continue;
             }
-            if (condition == PacketCondition.DAMAGED) {
+            if (currentPacketCondition == PacketCondition.DAMAGED) {
                 //Send NACK
 
                 sendNACK();
             }
-            if (condition == PacketCondition.DELAYED) {
+            if (currentPacketCondition == PacketCondition.DELAYED) {
                 //Async Delay
             }
             if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
@@ -324,7 +327,7 @@ class UDPClientHelper {
         // covert the packet info to the packet
         packet = packetInfo.getBytes();
 
-        System.out.println("Sending packet with data \n" + new String(packet));
+        System.out.println("Sending NACK with sequence number: " + expectedSequenceNumber);
         sendData = new byte[UDPClient.PACKET_LENGTH];
         sendData = packet;
 
@@ -504,46 +507,49 @@ class UDPClientHelper {
      * @param packet the packet to check
      * @return the changed (or not) packet
      */
-    private PacketCondition gremlin(byte[] packet, int headerLength) {
+    private byte[] gremlin(byte[] packet, int headerLength) {
         // First, decide whether to damage packet or not
         Random generator = new Random();
         double randomNumber = generator.nextDouble();
 
         if (randomNumber <= UDPClient.lostPacketProbability) {
-            return PacketCondition.LOST;
+            currentPacketCondition = PacketCondition.LOST;
+            return null;
+        }
+        if (randomNumber <= UDPClient.delayedPacketProbability) {
+            currentPacketCondition = PacketCondition.DELAYED;
+            return packet;
         }
 
         if (randomNumber <= UDPClient.damagedPacketProbability) {
-            return PacketCondition.DAMAGED;
+            currentPacketCondition = PacketCondition.DAMAGED;
+
+            double randomProb = generator.nextDouble();
+
+            // We decided to damage it
+            // Let's determine how much to damage
+            if (randomProb > 0.0 && randomProb <= 0.2) {
+                int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                int randomIdx3 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                packet[randomIdx1] = 0;
+                packet[randomIdx2] = 0;
+                packet[randomIdx3] = 0;
+            } else if (randomProb > 0.2 && randomProb <= 0.5) {
+                int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                packet[randomIdx1] = 0;
+                packet[randomIdx2] = 0;
+            } else {
+                int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
+                packet[randomIdx] = 0;
+            }
+
+            return packet;
         }
 
-        if (randomNumber <= UDPClient.delayedPacketProbability) {
-            return PacketCondition.DELAYED;
-        }
-
-        return PacketCondition.OKAY;
-//
-//        double randomProb = generator.nextDouble();
-//
-//        // We decided to damage it
-//        // Let's determine how much to damage
-//        if (randomProb > 0.0 && randomProb <= 0.2) {
-//            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            int randomIdx3 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            packet[randomIdx1] = 0;
-//            packet[randomIdx2] = 0;
-//            packet[randomIdx3] = 0;
-//        } else if (randomProb > 0.2 && randomProb <= 0.5) {
-//            int randomIdx1 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            int randomIdx2 = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            packet[randomIdx1] = 0;
-//            packet[randomIdx2] = 0;
-//        } else {
-//            int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
-//            packet[randomIdx] = 0;
-//        }
-
+        //Nothing happened to the packet, so return it.
+        return packet;
     }
 
     /**

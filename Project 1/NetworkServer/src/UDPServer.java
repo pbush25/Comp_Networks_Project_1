@@ -63,7 +63,8 @@ class UDPServerHelper {
      */
     void receiveRequest() throws IOException {
         // always listen
-        while (true) {
+        boolean listening = true;
+        while (listening) {
             System.out.println("Listening for request...");
             DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
             try {
@@ -81,6 +82,7 @@ class UDPServerHelper {
             if (processRequest(request)) {
                 // if we can process the request
                 System.out.println("Did process request");
+                listening = false;
                 executeTransaction();
             }
         }
@@ -201,17 +203,24 @@ class UDPServerHelper {
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
-            int ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, '\r'));
+            int ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (packetString == "ACK") {  //no need to check sequence number since the receiver will only send an ACK if it receives an in-order packet.
+            if (packetString.equals("ACK")) {  //no need to check sequence number since the receiver will only send an ACK if it receives an in-order packet.
                windowMin++;
                windowMax++;
                windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
+                System.out.println("\n===================================================="
+                        + "\nACK received with sequence number: " + ackSequenceNumber
+                        + "\n====================================================");
 
             }
-            else if (packetString == "NACK") {
+            else if (packetString.equals("NACK")) {
                 sequenceNumber = windowMin;
                 fileByteCounter = windowFileByteCounter;
+                System.out.println("\n===================================================="
+                        + "\nNACK received with sequence number: " + ackSequenceNumber
+                        + "\nRetransmitting packets " + ackSequenceNumber + " through " + windowMax
+                        + "\n====================================================");
             }
         }
         catch (SocketTimeoutException to) {
@@ -281,7 +290,10 @@ class UDPServerHelper {
         // covert the packet info to the packet
         packet = packetInfo.getBytes();
 
-        System.out.println("Sending packet with data \n" + new String(packet));
+
+        System.out.println("\n################################################################"
+                + "\nSending packet with data \n" + new String(packet)
+                + "\n################################################################" );
         sendData = new byte[UDPServer.PACKET_LENGTH];
         sendData = packet;
 
