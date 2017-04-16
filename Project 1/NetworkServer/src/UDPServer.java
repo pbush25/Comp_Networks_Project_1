@@ -56,6 +56,9 @@ class UDPServerHelper {
     private int fileByteCounter = 0;
     private int windowFileByteCounter = 0;
     private int sequenceNumber = 0;
+    private int ackSequenceNumber = 0;
+    private int lastSequenceNumber = 0;
+
 
     /**
      * Kicks off request receipt loop...will always be listening
@@ -189,7 +192,7 @@ class UDPServerHelper {
      */
     private void processAndSendData() {
         // break the file up into packets and send them
-        while(fileByteCounter < fileData.length) {
+        while(fileByteCounter < fileData.length || ackSequenceNumber != lastSequenceNumber) {
             while (sequenceNumber <= windowMax) {
                 processAndSendPacket();
             }
@@ -203,11 +206,14 @@ class UDPServerHelper {
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
-            int ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
+            ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (packetString.equals("ACK")) {  //no need to check sequence number since the receiver will only send an ACK if it receives an in-order packet.
+            if (packetString.equals("ACK")) {
                windowMin++;
-               windowMax++;
+               //Don't increase the window past the file length, otherwise null packets will be sent.
+               if (fileByteCounter < fileData.length) {
+                   windowMax++;
+               }
                windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
                 System.out.println("\n===================================================="
                         + "\nACK received with sequence number: " + ackSequenceNumber
@@ -299,8 +305,9 @@ class UDPServerHelper {
 
         // send the packet
         try {
-            sendPacket(incomingPort, incomingAddress);
-            sequenceNumber++;
+                sendPacket(incomingPort, incomingAddress);
+                sequenceNumber++;
+                lastSequenceNumber++;
         } catch (IOException e) {
             System.out.println("Unable to process response " + e.getLocalizedMessage());
         }

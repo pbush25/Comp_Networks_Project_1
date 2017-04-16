@@ -47,7 +47,7 @@ class UDPClient {
         }
 
         //Set Client variables
-        getUserInput();
+        while (!getUserInput()) { }
 
         // begin client runloop
         kickoffRunloop();
@@ -57,7 +57,7 @@ class UDPClient {
      * Allows the user to set the probability of packet corruption, loss, and delay. Also sets the delay time in milliseconds
      * and the server inet address.
      */
-    private static void getUserInput() {
+    private static boolean getUserInput() {
        try {
            inputBuffer = new BufferedReader(new InputStreamReader(System.in));
 
@@ -76,9 +76,12 @@ class UDPClient {
            System.out.print("Enter the server inet address: ");
            inetAddress = inputBuffer.readLine().trim();
 
+           return true;
+
        }
-       catch (java.io.IOException e) {
+       catch (Exception e) {
            System.out.println("Error reading in Gremlin variables. Error Message: " + e.getLocalizedMessage());
+           return false;
        }
     }
 
@@ -236,22 +239,21 @@ class UDPClientHelper {
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
-            //Yeah this was a bad idea, Should probably revert gremlin back to returning a packet.
             packet = gremlin(packet, header.length());
 
             if (currentPacketCondition == PacketCondition.LOST) {
                 //Act like we never received a packet.
                 continue;
             }
-            if (currentPacketCondition == PacketCondition.DAMAGED) {
+            else if (currentPacketCondition == PacketCondition.DAMAGED) {
                 //Send NACK
 
                 sendNACK();
             }
-            if (currentPacketCondition == PacketCondition.DELAYED) {
+            else if (currentPacketCondition == PacketCondition.DELAYED) {
                 //Async Delay
             }
-            if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+            else if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
                 //Send ACK with expected sequence number and print error message
                 System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
                 sendACK();
