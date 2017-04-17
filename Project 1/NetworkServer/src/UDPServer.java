@@ -52,12 +52,12 @@ class UDPServerHelper {
 
     private int windowMin = 0;
     private int windowMax = 31;
-    private int currentSequenceNum = 0;
     private int fileByteCounter = 0;
     private int windowFileByteCounter = 0;
     private int sequenceNumber = 0;
     private int ackSequenceNumber = 0;
     private int lastSequenceNumber = 0;
+    private int expectedAckNum = 1;
 
 
     /**
@@ -208,8 +208,9 @@ class UDPServerHelper {
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (packetString.equals("ACK")) {
+            if (packetString.equals("ACK") && expectedAckNum == ackSequenceNumber) {
                windowMin++;
+               expectedAckNum++;
                //Don't increase the window past the file length, otherwise null packets will be sent.
                if (fileByteCounter < fileData.length) {
                    windowMax++;
