@@ -9,6 +9,8 @@ import java.net.*;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import static java.lang.System.exit;
 
@@ -130,6 +132,7 @@ class UDPClient {
  */
 class UDPClientHelper {
     private byte[] sendData;
+    private byte[] delayedPacketData;
     private byte[] receiveData = new byte[UDPClient.PACKET_LENGTH];
     private InetAddress ipAddress;
     private int incomingPort;
@@ -509,8 +512,22 @@ class UDPClientHelper {
         }
         if (randomNumber <= UDPClient.delayedPacketProbability) {
             currentPacketCondition = PacketCondition.DELAYED;
-
-            return packet;
+            delayedPacketData = packet;
+            Timer t = new Timer();
+            TimerTask task = new TimerTask() {
+                @Override
+                public void run() {
+                    String ip = "127.0.0.1";
+                    InetAddress addr;
+                    try {
+                        addr = InetAddress.getByAddress(ip.getBytes());
+                        sendDelayedPacket(incomingPort, addr);
+                    } catch (Exception e) {}
+                    t.cancel();
+                }
+            };
+            t.schedule(task, UDPClient.delayedPacketTime);
+            return null;
         }
 
         if (randomNumber <= UDPClient.damagedPacketProbability) {
@@ -578,5 +595,15 @@ class UDPClientHelper {
         }
 
         return ResponseCodes.UNKNOWN;
+    }
+
+    private void sendDelayedPacket(int port, InetAddress ipAddress) throws IOException {
+        DatagramPacket sendPacket = new DatagramPacket(delayedPacketData, delayedPacketData.length, ipAddress, port);
+        try {
+            UDPClient.clientSocket.send(sendPacket);
+        } catch (IOException e) {
+            System.out.println("Unable to send delayed packet... " + e.getLocalizedMessage());
+            throw e;
+        }
     }
 }

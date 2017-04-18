@@ -304,7 +304,7 @@ class UDPServerHelper {
 
         System.out.println("\n################################################################"
                 + "\nSending packet with data \n" + new String(packet)
-                + "\n################################################################" );
+                + "\n################################################################\n" );
         sendData = new byte[UDPServer.PACKET_LENGTH];
         sendData = packet;
 
