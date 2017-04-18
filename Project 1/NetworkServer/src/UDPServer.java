@@ -20,7 +20,6 @@ class UDPServer {
     static final int HEADER_LENGTH = 40;
     static final int WINDOW_SIZE = 32;
 
-
     static final int SEQUENCE_SPACE = 65; //Mod 64 means we need 65 sequence numbers including 0
 
     /**
@@ -62,10 +61,7 @@ class UDPServerHelper {
     private int lastSequenceNumber = 0;
     private int expectedAckNum = 1;
     private int lastSequenceNumSent = 0;
-    private ArrayList<Timer> timer = new ArrayList<Timer>();
-    private ArrayList<Double> sendTimes = new ArrayList<Double>();
-    private double timout = 0.019;
-
+    private int timeout = 15;
 
     /**
      * Kicks off request receipt loop...will always be listening
@@ -118,6 +114,7 @@ class UDPServerHelper {
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ipAddress, port);
         try {
             UDPServer.serverSocket.send(sendPacket);
+            UDPServer.serverSocket.setSoTimeout(timeout);
         } catch (IOException e) {
             System.out.println("Unable to send packet... " + e.getLocalizedMessage());
             throw e;
@@ -148,7 +145,6 @@ class UDPServerHelper {
             sendHTTPResponse(fnfResponse);
             return false;
         }
-
         return fileData.length != 0;
     }
 
@@ -157,7 +153,6 @@ class UDPServerHelper {
      * @param response String the response to send
      */
     private void sendHTTPResponse(String response) {
-
         sendData = new byte[UDPServer.PACKET_LENGTH];
         sendData = response.getBytes();
         System.out.println("Responding to HTTP request with response: \n" + response);
@@ -198,7 +193,6 @@ class UDPServerHelper {
      * Process the requested file and send the data
      */
     private void processAndSendData() {
-        // break the file up into packets and send them
         while(fileByteCounter < fileData.length || ackSequenceNumber != lastSequenceNumber) {
             while (sequenceNumber <= windowMax && fileByteCounter < fileData.length) {
                 processAndSendPacket();
@@ -208,7 +202,6 @@ class UDPServerHelper {
     }
 
     private void waitForResponse() {
-
         try {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
@@ -226,7 +219,7 @@ class UDPServerHelper {
                 windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
                 System.out.println("\n===================================================="
                         + "\nACK received with sequence number: " + ackSequenceNumber
-                        + "\n====================================================");
+                        + "\n====================================================\n");
 
             } else if (packetString.equals("NACK")) {
                 sequenceNumber = windowMin;
@@ -235,14 +228,18 @@ class UDPServerHelper {
                 System.out.println("\n===================================================="
                         + "\nNACK received with sequence number: " + ackSequenceNumber
                         + "\nRetransmitting packets " + ackSequenceNumber + " through " + lastSequenceNumSent
-                        + "\n====================================================");
+                        + "\n====================================================\n");
             }
         } catch (SocketTimeoutException to) {
-            System.out.println("Socket Timeout Exception: " + to.getLocalizedMessage());
-
+            sequenceNumber = windowMin;
+            lastSequenceNumber = windowMin;
+            fileByteCounter = windowFileByteCounter;
+            System.out.println("\n===================================================="
+                    + "\nSystem timed out at sequence num " + sequenceNumber
+                    + "\nRetransmitting packets " + sequenceNumber + " through " + lastSequenceNumSent
+                    + "\n====================================================");
         } catch (IOException e) {
-            System.out.println("Error receiving packet... " + e.getLocalizedMessage());
-
+            System.out.println("\nError receiving packet... " + e.getLocalizedMessage());
         }
         return;
     }

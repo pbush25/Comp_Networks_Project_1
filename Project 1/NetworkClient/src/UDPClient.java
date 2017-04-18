@@ -21,7 +21,7 @@ class UDPClient {
     static double damagedPacketProbability;
     static double lostPacketProbability;
     static double delayedPacketProbability;
-    static double delayedPacketTime;
+    static long delayedPacketTime;
     static String fileName;
     static UDPClientHelper client;
     static String inetAddress;
@@ -71,7 +71,7 @@ class UDPClient {
            delayedPacketProbability = Double.parseDouble(inputBuffer.readLine().trim());
 
            System.out.print("Enter the delay time for packets (in milliseconds): ");
-           delayedPacketTime = Double.parseDouble(inputBuffer.readLine().trim());
+           delayedPacketTime = Long.parseLong(inputBuffer.readLine().trim());
 
            System.out.print("Enter the server inet address: ");
            inetAddress = inputBuffer.readLine().trim();
@@ -242,37 +242,26 @@ class UDPClientHelper {
             //Run the gremlin
             packet = gremlin(packet, header.length());
 
+            if (packet == null) {
+                continue;
+            }
 
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
 
-            if (currentPacketCondition == PacketCondition.LOST) {
-                //Act like we never received a packet.
-                continue;
-            }
-            else if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+            if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
                 //Send ACK with expected sequence number and print error message
                 System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
                 sendACK();
-            }
-            else if (currentPacketCondition == PacketCondition.DELAYED) {
-                //Async Delay
-            }
-            else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
+            } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
                 System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
                 sendNACK();
-            }
-            else {
+            } else {
                 expectedSequenceNumber++;
                 sendACK();
-
                 fileInfo += packetString;
                 System.out.println("Received data in packet \n" + new String(packet));
                 packet = null;
             }
-
-
-
-
         } catch (IOException | ArrayIndexOutOfBoundsException e) {
             System.out.println("Unable to load file from response " + e.getStackTrace());
             return;
@@ -520,6 +509,7 @@ class UDPClientHelper {
         }
         if (randomNumber <= UDPClient.delayedPacketProbability) {
             currentPacketCondition = PacketCondition.DELAYED;
+
             return packet;
         }
 
