@@ -4,7 +4,10 @@
 import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Timer;
+import java.util.TimerTask;
 
 /**
  * UDPServer class
@@ -58,6 +61,10 @@ class UDPServerHelper {
     private int ackSequenceNumber = 0;
     private int lastSequenceNumber = 0;
     private int expectedAckNum = 1;
+    private int lastSequenceNumSent = 0;
+    private ArrayList<Timer> timer = new ArrayList<Timer>();
+    private ArrayList<Double> sendTimes = new ArrayList<Double>();
+    private double timout = 0.019;
 
 
     /**
@@ -193,7 +200,7 @@ class UDPServerHelper {
     private void processAndSendData() {
         // break the file up into packets and send them
         while(fileByteCounter < fileData.length || ackSequenceNumber != lastSequenceNumber) {
-            while (sequenceNumber <= windowMax) {
+            while (sequenceNumber <= windowMax && fileByteCounter < fileData.length) {
                 processAndSendPacket();
             }
             waitForResponse();
@@ -201,6 +208,7 @@ class UDPServerHelper {
     }
 
     private void waitForResponse() {
+
         try {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
@@ -209,35 +217,34 @@ class UDPServerHelper {
             ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
             if (packetString.equals("ACK") && expectedAckNum == ackSequenceNumber) {
-               windowMin++;
-               expectedAckNum++;
-               //Don't increase the window past the file length, otherwise null packets will be sent.
-               if (fileByteCounter < fileData.length) {
-                   windowMax++;
-               }
-               windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
+                windowMin++;
+                expectedAckNum++;
+                //Don't increase the window past the file length, otherwise null packets will be sent.
+                if (fileByteCounter < fileData.length) {
+                    windowMax++;
+                }
+                windowFileByteCounter += UDPServer.PACKET_LENGTH - UDPServer.HEADER_LENGTH; //Increase by the size of the data
                 System.out.println("\n===================================================="
                         + "\nACK received with sequence number: " + ackSequenceNumber
                         + "\n====================================================");
 
-            }
-            else if (packetString.equals("NACK")) {
+            } else if (packetString.equals("NACK")) {
                 sequenceNumber = windowMin;
+                lastSequenceNumber = windowMin;
                 fileByteCounter = windowFileByteCounter;
                 System.out.println("\n===================================================="
                         + "\nNACK received with sequence number: " + ackSequenceNumber
-                        + "\nRetransmitting packets " + ackSequenceNumber + " through " + windowMax
+                        + "\nRetransmitting packets " + ackSequenceNumber + " through " + lastSequenceNumSent
                         + "\n====================================================");
             }
-        }
-        catch (SocketTimeoutException to) {
+        } catch (SocketTimeoutException to) {
             System.out.println("Socket Timeout Exception: " + to.getLocalizedMessage());
 
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             System.out.println("Error receiving packet... " + e.getLocalizedMessage());
 
         }
+        return;
     }
 
     /**
@@ -307,6 +314,7 @@ class UDPServerHelper {
         // send the packet
         try {
                 sendPacket(incomingPort, incomingAddress);
+                lastSequenceNumSent = sequenceNumber;
                 sequenceNumber++;
                 lastSequenceNumber++;
         } catch (IOException e) {
