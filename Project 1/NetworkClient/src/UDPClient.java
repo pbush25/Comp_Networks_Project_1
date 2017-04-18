@@ -136,6 +136,7 @@ class UDPClientHelper {
     private byte[] receiveData = new byte[UDPClient.PACKET_LENGTH];
     private InetAddress ipAddress;
     private int incomingPort;
+    private int myReceivingPort = 10040;
     private byte[] file;
     private int fileSize;
     private String fileInfo = "";
@@ -504,13 +505,15 @@ class UDPClientHelper {
     private byte[] gremlin(byte[] packet, int headerLength) {
         // First, decide whether to damage packet or not
         Random generator = new Random();
-        double randomNumber = generator.nextDouble();
+        double lostRandomNum = generator.nextDouble();
+        double delayedRandomNumber = generator.nextDouble();
+        double damagedRandomNumber = generator.nextDouble();
 
-        if (randomNumber <= UDPClient.lostPacketProbability) {
+        if (lostRandomNum <= UDPClient.lostPacketProbability) {
             currentPacketCondition = PacketCondition.LOST;
             return null;
         }
-        if (randomNumber <= UDPClient.delayedPacketProbability) {
+        if (delayedRandomNumber <= UDPClient.delayedPacketProbability) {
             currentPacketCondition = PacketCondition.DELAYED;
             delayedPacketData = packet;
             Timer t = new Timer();
@@ -521,7 +524,7 @@ class UDPClientHelper {
                     InetAddress addr;
                     try {
                         addr = InetAddress.getByAddress(ip.getBytes());
-                        sendDelayedPacket(incomingPort, addr);
+                        sendDelayedPacket(myReceivingPort, addr);
                     } catch (Exception e) {}
                     t.cancel();
                 }
@@ -530,7 +533,7 @@ class UDPClientHelper {
             return null;
         }
 
-        if (randomNumber <= UDPClient.damagedPacketProbability) {
+        if (damagedRandomNumber <= UDPClient.damagedPacketProbability) {
             currentPacketCondition = PacketCondition.DAMAGED;
 
             double randomProb = generator.nextDouble();
