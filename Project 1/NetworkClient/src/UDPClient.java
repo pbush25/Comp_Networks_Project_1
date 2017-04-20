@@ -242,7 +242,6 @@ class UDPClientHelper {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
-            header = new String(packet).substring(0, new String(packet).indexOf('&'));
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
@@ -255,28 +254,32 @@ class UDPClientHelper {
 
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
 
-            mutex.lock();
-            if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
-                //Send ACK with expected sequence number and print error message
-                System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
-                sendACK();
-                mutex.unlock();
-            } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
-                System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
-                sendNACK();
-                mutex.unlock();
-            } else {
-                expectedSequenceNumber++;
-                sendACK();
-                fileInfo += packetString;
-                System.out.println("Received data in packet \n" + new String(packet));
-                packet = null;
-                mutex.unlock();
-            }
+            checkForCorrectPacket(packet, expectedChecksum, sequenceNumber, packetString);
         } catch (IOException | ArrayIndexOutOfBoundsException e) {
             System.out.println("Unable to load file from response " + e.getStackTrace());
             return;
         } catch (StringIndexOutOfBoundsException e) { }
+    }
+
+    private void checkForCorrectPacket(byte[] packet, int expectedChecksum, String sequenceNumber, String packetString) {
+        mutex.lock();
+        if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+            //Send ACK with expected sequence number and print error message
+            System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
+            sendACK();
+            mutex.unlock();
+        } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
+            System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
+            sendNACK();
+            mutex.unlock();
+        } else {
+            expectedSequenceNumber++;
+            sendACK();
+            fileInfo += packetString;
+            System.out.println("Received data in packet \n" + new String(packet));
+            packet = null;
+            mutex.unlock();
+        }
     }
 
     private void sendACK() {
@@ -578,7 +581,6 @@ class UDPClientHelper {
         }
         packet = trim(packet); // remove null bytes
         String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
-        header = new String(packet).substring(0, new String(packet).indexOf('&'));
         int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
         String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
@@ -592,24 +594,7 @@ class UDPClientHelper {
 
         String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
 
-        mutex.lock();
-        if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
-            //Send ACK with expected sequence number and print error message
-            System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
-            sendACK();
-            mutex.unlock();
-        } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
-            System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
-            sendNACK();
-            mutex.unlock();
-        } else {
-            expectedSequenceNumber++;
-            sendACK();
-            fileInfo += packetString;
-            System.out.println("Received data in packet \n" + new String(packet));
-            packet = null;
-            mutex.unlock();
-        }
+        checkForCorrectPacket(packet, expectedChecksum, sequenceNumber, packetString);
     }
 
     /**
