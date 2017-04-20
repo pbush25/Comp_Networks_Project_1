@@ -4,10 +4,7 @@
 import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Timer;
-import java.util.TimerTask;
 
 /**
  * UDPServer class
@@ -18,9 +15,7 @@ class UDPServer {
     static DatagramSocket serverSocket;
     static final int PACKET_LENGTH = 512;
     static final int HEADER_LENGTH = 40;
-    static final int WINDOW_SIZE = 32;
-
-    static final int SEQUENCE_SPACE = 65; //Mod 64 means we need 65 sequence numbers including 0
+    static final int SEQUENCE_SPACE = 64;
 
     /**
      * Main runloop for server; always running
@@ -235,8 +230,9 @@ class UDPServerHelper {
             lastSequenceNumber = windowMin;
             fileByteCounter = windowFileByteCounter;
             System.out.println("\n===================================================="
-                    + "\nSystem timed out at sequence num " + sequenceNumber
-                    + "\nRetransmitting packets " + sequenceNumber + " through " + lastSequenceNumSent
+                    + "\nSystem timed out at sequence num " + (sequenceNumber)
+                    + "\nRetransmitting packets " + (sequenceNumber) + " through "
+                    + (lastSequenceNumSent % UDPServer.SEQUENCE_SPACE)
                     + "\n====================================================");
         } catch (IOException e) {
             System.out.println("\nError receiving packet... " + e.getLocalizedMessage());
@@ -303,7 +299,7 @@ class UDPServerHelper {
 
 
         System.out.println("\n################################################################"
-                + "\nSending packet with data \n" + new String(packet)
+                + "\nSending packet \n" + new String(packetHeader)
                 + "\n################################################################\n" );
         sendData = new byte[UDPServer.PACKET_LENGTH];
         sendData = packet;

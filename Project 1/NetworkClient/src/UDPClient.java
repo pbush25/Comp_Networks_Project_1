@@ -2,15 +2,12 @@
  * Created by King on 3/2/2017.
  */
 
-import com.sun.xml.internal.bind.v2.runtime.reflect.Lister;
+import sun.awt.Mutex;
 
 import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
-import java.util.Arrays;
-import java.util.Random;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
 
 import static java.lang.System.exit;
 
@@ -41,6 +38,9 @@ class UDPClient {
             // set the probability
             try {
                 damagedPacketProbability = Double.parseDouble(args[0]);
+                lostPacketProbability = Double.parseDouble(args[1]);
+                delayedPacketProbability = Double.parseDouble(args[2]);
+                delayedPacketTime = Long.parseLong(args[3]);
             } catch (NumberFormatException e) {
                 System.out.println("Error! Damaged packet probability must be an double!");
                 System.out.println("Usage: java UDPClient <double>");
@@ -132,16 +132,18 @@ class UDPClient {
  */
 class UDPClientHelper {
     private byte[] sendData;
-    private byte[] delayedPacketData;
+    private ArrayList<byte[]> delayedPacketData = new ArrayList<>();
     private byte[] receiveData = new byte[UDPClient.PACKET_LENGTH];
     private InetAddress ipAddress;
     private int incomingPort;
-    private int myReceivingPort = 10040;
     private byte[] file;
     private int fileSize;
     private String fileInfo = "";
     private int expectedSequenceNumber = 0;
     private PacketCondition currentPacketCondition;
+    private ArrayList<Timer> timerList = new ArrayList<>();
+    private boolean running = true;
+    private Mutex mutex = new Mutex();
 
     /**
      * Create a new UDPClientHelper class
@@ -236,10 +238,11 @@ class UDPClientHelper {
      */
     private void loadFileFromResponse() {
         // get the file packets while the size of the data is less than the file size
-        while (fileInfo.length() < fileSize) try {
+        while (fileInfo.length() < fileSize && running) try {
             receivePacket();
             byte[] packet = trim(receiveData); // remove null bytes
             String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
+            header = new String(packet).substring(0, new String(packet).indexOf('&'));
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
 
@@ -252,24 +255,28 @@ class UDPClientHelper {
 
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
 
+            mutex.lock();
             if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
                 //Send ACK with expected sequence number and print error message
                 System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
                 sendACK();
+                mutex.unlock();
             } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
                 System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
                 sendNACK();
+                mutex.unlock();
             } else {
                 expectedSequenceNumber++;
                 sendACK();
                 fileInfo += packetString;
                 System.out.println("Received data in packet \n" + new String(packet));
                 packet = null;
+                mutex.unlock();
             }
         } catch (IOException | ArrayIndexOutOfBoundsException e) {
             System.out.println("Unable to load file from response " + e.getStackTrace());
             return;
-        }
+        } catch (StringIndexOutOfBoundsException e) { }
     }
 
     private void sendACK() {
@@ -389,11 +396,16 @@ class UDPClientHelper {
      * Write the file buffer to file
      */
     private void receivedNullPacket() {
+        for (Timer t : timerList) {
+            t.cancel();
+        }
+        running = false;
         try {
             UDPClient.clientSocket.setSoTimeout(0);
         } catch (Exception e) {
             return;
         }
+
         UDPClient.clientSocket.close();
         System.out.println("Received null packet from server... writing file");
         file = fileInfo.getBytes();
@@ -514,30 +526,28 @@ class UDPClientHelper {
             return null;
         }
         if (delayedRandomNumber <= UDPClient.delayedPacketProbability) {
-            currentPacketCondition = PacketCondition.DELAYED;
-            delayedPacketData = packet;
-            Timer t = new Timer();
-            TimerTask task = new TimerTask() {
-                @Override
-                public void run() {
-                    String ip = "127.0.0.1";
-                    InetAddress addr;
-                    try {
-                        addr = InetAddress.getByAddress(ip.getBytes());
-                        sendDelayedPacket(myReceivingPort, addr);
-                    } catch (Exception e) {}
-                    t.cancel();
-                }
-            };
-            t.schedule(task, UDPClient.delayedPacketTime);
-            return null;
+            if (UDPClient.delayedPacketTime > 0) {
+                delayedPacketData.add(packet);
+                currentPacketCondition = PacketCondition.DELAYED;
+                Timer t = new Timer();
+                TimerTask task = new TimerTask() {
+                    @Override
+                    public void run() {
+                        receiveDelayedPacket(delayedPacketData.remove(0));
+                        t.cancel();
+                    }
+                };
+                t.schedule(task, UDPClient.delayedPacketTime);
+                timerList.add(t);
+                return null;
+            } else {
+                return packet;
+            }
         }
 
         if (damagedRandomNumber <= UDPClient.damagedPacketProbability) {
             currentPacketCondition = PacketCondition.DAMAGED;
-
             double randomProb = generator.nextDouble();
-
             // We decided to damage it
             // Let's determine how much to damage
             if (randomProb > 0.0 && randomProb <= 0.2) {
@@ -556,12 +566,50 @@ class UDPClientHelper {
                 int randomIdx = generator.nextInt(((packet.length - 1) - headerLength) + headerLength);
                 packet[randomIdx] = 0;
             }
-
             return packet;
         }
-
         //Nothing happened to the packet, so return it.
         return packet;
+    }
+
+    private void receiveDelayedPacket(byte[] packet) {
+        if (packet == null) {
+            return;
+        }
+        packet = trim(packet); // remove null bytes
+        String header = new String(packet).substring(0, new String(packet).indexOf('&')); // just header
+        header = new String(packet).substring(0, new String(packet).indexOf('&'));
+        int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
+        String sequenceNumber = header.substring(header.indexOf('#') + 1, header.indexOf('\r'));
+
+        //Run the gremlin
+        packet = gremlin(packet, header.length());
+
+        if (packet == null) {
+            return;
+        }
+
+
+        String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
+
+        mutex.lock();
+        if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+            //Send ACK with expected sequence number and print error message
+            System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
+            sendACK();
+            mutex.unlock();
+        } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
+            System.out.println("Checksum error exists! Bad sequence number: " + sequenceNumber);
+            sendNACK();
+            mutex.unlock();
+        } else {
+            expectedSequenceNumber++;
+            sendACK();
+            fileInfo += packetString;
+            System.out.println("Received data in packet \n" + new String(packet));
+            packet = null;
+            mutex.unlock();
+        }
     }
 
     /**
@@ -596,17 +644,6 @@ class UDPClientHelper {
             default:
                 break;
         }
-
         return ResponseCodes.UNKNOWN;
-    }
-
-    private void sendDelayedPacket(int port, InetAddress ipAddress) throws IOException {
-        DatagramPacket sendPacket = new DatagramPacket(delayedPacketData, delayedPacketData.length, ipAddress, port);
-        try {
-            UDPClient.clientSocket.send(sendPacket);
-        } catch (IOException e) {
-            System.out.println("Unable to send delayed packet... " + e.getLocalizedMessage());
-            throw e;
-        }
     }
 }
