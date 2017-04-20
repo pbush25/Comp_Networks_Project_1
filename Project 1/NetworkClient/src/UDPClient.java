@@ -144,6 +144,7 @@ class UDPClientHelper {
     private ArrayList<Timer> timerList = new ArrayList<>();
     private boolean running = true;
     private Mutex mutex = new Mutex();
+    private static final int seqNumMod = 64;
 
     /**
      * Create a new UDPClientHelper class
@@ -263,9 +264,9 @@ class UDPClientHelper {
 
     private void checkForCorrectPacket(byte[] packet, int expectedChecksum, String sequenceNumber, String packetString) {
         mutex.lock();
-        if (Integer.parseInt(sequenceNumber) != expectedSequenceNumber) {
+        if (Integer.parseInt(sequenceNumber) != (expectedSequenceNumber % seqNumMod)) {
             //Send ACK with expected sequence number and print error message
-            System.out.println("Expected sequence number " + expectedSequenceNumber + " but received sequence number: " + sequenceNumber);
+            System.out.println("Expected sequence number " + (expectedSequenceNumber % seqNumMod) + " but received sequence number: " + sequenceNumber);
             sendACK();
             mutex.unlock();
         } else if (!checksumErrorExists(expectedChecksum, packetString.getBytes())) {
@@ -294,14 +295,14 @@ class UDPClientHelper {
         // compute the checksum and create packet header
         int checksum = computeChecksum(ack.getBytes());
 
-        packetHeader = createDataPacketHeader(expectedSequenceNumber, checksum);
+        packetHeader = createDataPacketHeader((expectedSequenceNumber % seqNumMod), checksum);
 
         packetInfo = packetHeader + ack;
 
         // covert the packet info to the packet
         packet = packetInfo.getBytes();
 
-        System.out.println("Sending ACK with sequence number: " + expectedSequenceNumber);
+        System.out.println("Sending ACK with sequence number: " + (expectedSequenceNumber % seqNumMod));
         sendData = new byte[UDPClient.PACKET_LENGTH];
         sendData = packet;
 
@@ -325,14 +326,14 @@ class UDPClientHelper {
         // compute the checksum and create packet header
         int checksum = computeChecksum(nack.getBytes());
 
-        packetHeader = createDataPacketHeader(expectedSequenceNumber, checksum);
+        packetHeader = createDataPacketHeader((expectedSequenceNumber % seqNumMod), checksum);
 
         packetInfo = packetHeader + nack;
 
         // covert the packet info to the packet
         packet = packetInfo.getBytes();
 
-        System.out.println("Sending NACK with sequence number: " + expectedSequenceNumber);
+        System.out.println("Sending NACK with sequence number: " + (expectedSequenceNumber % seqNumMod));
         sendData = new byte[UDPClient.PACKET_LENGTH];
         sendData = packet;
 

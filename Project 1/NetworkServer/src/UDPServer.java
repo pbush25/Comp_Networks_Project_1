@@ -188,7 +188,7 @@ class UDPServerHelper {
      * Process the requested file and send the data
      */
     private void processAndSendData() {
-        while(fileByteCounter < fileData.length || ackSequenceNumber != lastSequenceNumber) {
+        while(fileByteCounter < fileData.length || ackSequenceNumber != (lastSequenceNumber % 64)) {
             while (sequenceNumber <= windowMax && fileByteCounter < fileData.length) {
                 processAndSendPacket();
             }
@@ -204,7 +204,7 @@ class UDPServerHelper {
             int expectedChecksum = Integer.parseInt(header.substring(header.lastIndexOf('#') + 1, header.lastIndexOf('\r')));
             ackSequenceNumber = Integer.parseInt(header.substring(header.indexOf('#') + 1, header.indexOf('\r')));
             String packetString = new String(packet).substring(new String(packet).indexOf('&') + 3); // find EOH
-            if (packetString.equals("ACK") && expectedAckNum == ackSequenceNumber) {
+            if (packetString.equals("ACK") && (expectedAckNum % UDPServer.SEQUENCE_SPACE) == ackSequenceNumber) {
                 windowMin++;
                 expectedAckNum++;
                 //Don't increase the window past the file length, otherwise null packets will be sent.
@@ -230,8 +230,8 @@ class UDPServerHelper {
             lastSequenceNumber = windowMin;
             fileByteCounter = windowFileByteCounter;
             System.out.println("\n===================================================="
-                    + "\nSystem timed out at sequence num " + (sequenceNumber)
-                    + "\nRetransmitting packets " + (sequenceNumber) + " through "
+                    + "\nSystem timed out at sequence num " + (sequenceNumber % UDPServer.SEQUENCE_SPACE)
+                    + "\nRetransmitting packets " + (sequenceNumber% UDPServer.SEQUENCE_SPACE) + " through "
                     + (lastSequenceNumSent % UDPServer.SEQUENCE_SPACE)
                     + "\n====================================================");
         } catch (IOException e) {
@@ -290,7 +290,7 @@ class UDPServerHelper {
 
         // compute the checksum and create packet header
         int checksum = computeChecksum(tempFileBytes);
-        packetHeader = createDataPacketHeader(sequenceNumber, checksum);
+        packetHeader = createDataPacketHeader(sequenceNumber % UDPServer.SEQUENCE_SPACE, checksum);
 
         packetInfo = packetHeader + new String(tempFileBytes);
 
